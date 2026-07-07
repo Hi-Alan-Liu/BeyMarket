@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: beymarket-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: beymarket
+      POSTGRES_PASSWORD: beymarket
+      POSTGRES_DB: beymarket
+    ports:
+      - "5432:5432"
+    volumes:
+      - beymarket-pgdata:/var/lib/postgresql/data
+
+volumes:
+  beymarket-pgdata:

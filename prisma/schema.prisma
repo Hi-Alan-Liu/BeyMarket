@@ -1,0 +1,390 @@
+// BeyMarket — 戰鬥陀螺零件交易賣場
+// Prisma schema。docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+//  列舉（Enums）
+// ============================================================
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+/// 商品狀況（全新 / 二手 / 二手有使用痕跡）。行情依此分開統計。
+enum Condition {
+  NEW
+  USED
+  USED_WORN
+}
+
+/// 商品狀態
+enum ListingStatus {
+  ACTIVE // 上架中
+  NEGOTIATING // 洽談中
+  SOLD // 已售出
+  DELISTED // 下架
+}
+
+/// 購買需求狀態
+enum RequestStatus {
+  PENDING // 待處理
+  ACCEPTED // 已接受（成為成交對象）
+  REJECTED // 已婉拒
+  WITHDRAWN // 買家撤回
+}
+
+/// 評價角色：撰寫者當時是以買家還是賣家身份評價
+enum ReviewerRole {
+  BUYER
+  SELLER
+}
+
+// ============================================================
+//  Auth.js（NextAuth v5）標準模型
+//  先用帳號密碼（Credentials），Account/Session 預留給 Discord / LINE
+// ============================================================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+
+  // 帳號密碼登入用（Credentials）。第三方登入的使用者此欄為 null。
+  passwordHash String?
+
+  // 平台個人檔案
+  displayName String?
+  lineContact String? // LINE ID 或聯絡連結（主要溝通管道）
+  role        UserRole @default(USER)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Auth.js 關聯
+  accounts Account[]
+  sessions Session[]
+
+  // 業務關聯
+  listings         Listing[]         @relation("SellerListings")
+  purchaseRequests PurchaseRequest[] @relation("BuyerRequests")
+  salesAsSeller    Transaction[]     @relation("SellerTransactions")
+  purchasesAsBuyer Transaction[]     @relation("BuyerTransactions")
+  reviewsWritten   Review[]          @relation("ReviewAuthor")
+  reviewsReceived  Review[]          @relation("ReviewTarget")
+  stats            SellerStats?
+
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String // "discord" | "line" | ...
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============================================================
+//  戰鬥陀螺分類體系（可擴充，不寫死 enum）
+// ============================================================
+
+/// 系列：CX / UX / BX（未來可新增 DX…）
+model Series {
+  id        String   @id @default(cuid())
+  code      String   @unique // "CX" | "UX" | "BX"
+  name      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  subTypes SubType[]
+  listings Listing[]
+  catalog  PartCatalog[]
+}
+
+/// 主分類：上蓋 / 固鎖 / 軸心 / 發射器 / 拉條 / 握把 / 其他配件
+model PartType {
+  id           String   @id @default(cuid())
+  code         String   @unique // "BLADE" | "RATCHET" | "BIT" | "LAUNCHER" | "RIPCORD" | "GRIP" | "OTHER"
+  name         String
+  isAccessory  Boolean  @default(false) // 是否為配件（發射器/拉條/握把…）
+  allowSubType Boolean  @default(false) // 此主分類是否有子分類（CX 上蓋類為 true）
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  subTypes SubType[]
+  listings Listing[]
+  catalog  PartCatalog[]
+}
+
+/// 子分類（目前僅 CX 上蓋擴充有）：紋章 / 戰刃 / 輔助戰刃
+/// 透過 seriesId + partTypeId 限制其只出現在特定系列與主分類下
+model SubType {
+  id         String   @id @default(cuid())
+  code       String   @unique // "EMBLEM" | "MAIN_BLADE" | "ASSIST_BLADE"
+  name       String
+  seriesId   String? // 限定系列（CX）
+  partTypeId String? // 限定主分類（上蓋）
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  series   Series?   @relation(fields: [seriesId], references: [id])
+  partType PartType? @relation(fields: [partTypeId], references: [id])
+
+  listings Listing[]
+  catalog  PartCatalog[]
+
+  @@index([seriesId])
+  @@index([partTypeId])
+}
+
+/// 零件字典：正規化品項（例：DranBuster 3-60F）
+/// 行情彙整以「catalogItem × condition」為維度，因此需正規化命名。
+model PartCatalog {
+  id         String   @id @default(cuid())
+  name       String // 正規化品項名稱
+  seriesId   String
+  partTypeId String
+  subTypeId  String?
+  createdAt  DateTime @default(now())
+
+  series   Series   @relation(fields: [seriesId], references: [id])
+  partType PartType @relation(fields: [partTypeId], references: [id])
+  subType  SubType? @relation(fields: [subTypeId], references: [id])
+
+  listings      Listing[]
+  transactions  Transaction[]
+  priceHistory  PriceHistory[]
+  dailySummary  PriceDailySummary[]
+  weeklySummary PriceWeeklySummary[]
+
+  @@unique([name, seriesId, partTypeId, subTypeId])
+  @@index([seriesId])
+  @@index([partTypeId])
+}
+
+// ============================================================
+//  商品上架
+// ============================================================
+
+model Listing {
+  id          String        @id @default(cuid())
+  sellerId    String
+  title       String
+  description String?
+  seriesId    String
+  partTypeId  String
+  subTypeId   String?
+  catalogId   String? // 對應零件字典（供行情彙整）
+  condition   Condition     @default(USED)
+  price       Int // 開價（僅參考，實際以 LINE 談定）
+  quantity    Int           @default(1)
+  status      ListingStatus @default(ACTIVE)
+  lineContact String? // 覆寫賣家預設 LINE 聯絡方式（可空）
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  seller   User         @relation("SellerListings", fields: [sellerId], references: [id], onDelete: Cascade)
+  series   Series       @relation(fields: [seriesId], references: [id])
+  partType PartType     @relation(fields: [partTypeId], references: [id])
+  subType  SubType?     @relation(fields: [subTypeId], references: [id])
+  catalog  PartCatalog? @relation(fields: [catalogId], references: [id])
+
+  images      ListingImage[]
+  requests    PurchaseRequest[]
+  transaction Transaction?
+
+  @@index([sellerId])
+  @@index([seriesId, partTypeId, subTypeId])
+  @@index([status])
+  @@index([condition])
+}
+
+model ListingImage {
+  id        String   @id @default(cuid())
+  listingId String
+  url       String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+}
+
+// ============================================================
+//  購買需求
+// ============================================================
+
+model PurchaseRequest {
+  id        String        @id @default(cuid())
+  listingId String
+  buyerId   String
+  message   String?
+  quantity  Int           @default(1)
+  status    RequestStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyer   User    @relation("BuyerRequests", fields: [buyerId], references: [id], onDelete: Cascade)
+
+  @@unique([listingId, buyerId]) // 同一買家對同一商品只留一筆需求
+  @@index([buyerId])
+  @@index([status])
+}
+
+// ============================================================
+//  成交紀錄（賣家手動標記已售出並指定買家）
+// ============================================================
+
+model Transaction {
+  id        String    @id @default(cuid())
+  listingId String    @unique // 一個商品一筆成交
+  sellerId  String
+  buyerId   String? // 站內買家；若為站外買家則為 null
+  buyerName String? // 站外買家名稱（手動輸入時）
+  catalogId String? // 對應零件字典（寫入行情）
+  condition Condition
+  price     Int // 實際成交價
+  soldAt    DateTime  @default(now())
+
+  listing Listing      @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  seller  User         @relation("SellerTransactions", fields: [sellerId], references: [id])
+  buyer   User?        @relation("BuyerTransactions", fields: [buyerId], references: [id])
+  catalog PartCatalog? @relation(fields: [catalogId], references: [id])
+
+  reviews Review[]
+
+  @@index([sellerId])
+  @@index([buyerId])
+  @@index([catalogId, condition])
+}
+
+// ============================================================
+//  市場行情（依 catalogItem × condition 分開統計）
+// ============================================================
+
+/// 行情明細：每筆成交產生一筆
+model PriceHistory {
+  id        String    @id @default(cuid())
+  catalogId String
+  condition Condition
+  price     Int
+  soldAt    DateTime
+
+  catalog PartCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+
+  @@index([catalogId, condition, soldAt])
+}
+
+/// 每日彙整
+model PriceDailySummary {
+  id        String    @id @default(cuid())
+  catalogId String
+  condition Condition
+  date      DateTime // 當日（截斷到日）
+  minPrice  Int
+  maxPrice  Int
+  avgPrice  Float
+  count     Int
+
+  catalog PartCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+
+  @@unique([catalogId, condition, date])
+  @@index([catalogId, condition])
+}
+
+/// 每週彙整
+model PriceWeeklySummary {
+  id        String    @id @default(cuid())
+  catalogId String
+  condition Condition
+  year      Int
+  week      Int // ISO week
+  minPrice  Int
+  maxPrice  Int
+  avgPrice  Float
+  count     Int
+
+  catalog PartCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+
+  @@unique([catalogId, condition, year, week])
+  @@index([catalogId, condition])
+}
+
+// ============================================================
+//  評價 / 信任分數（第一版納入）
+// ============================================================
+
+model Review {
+  id            String       @id @default(cuid())
+  transactionId String
+  authorId      String // 撰寫者
+  targetId      String // 被評價者
+  role          ReviewerRole // 撰寫者當時身份
+  rating        Int // 1..5
+  comment       String?
+  createdAt     DateTime     @default(now())
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  author      User        @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  target      User        @relation("ReviewTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  // 一筆交易、同一撰寫者只能留一次評價（防刷）
+  @@unique([transactionId, authorId])
+  @@index([targetId])
+}
+
+/// 賣家統計（由 reviews / transactions 彙整；快取以利列表顯示）
+model SellerStats {
+  userId      String   @id
+  totalSales  Int      @default(0)
+  ratingSum   Int      @default(0)
+  ratingCount Int      @default(0)
+  avgRating   Float    @default(0)
+  trustScore  Float    @default(0) // 加權：成交數 + 平均評價 + 帳齡
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
