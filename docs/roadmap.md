@@ -5,46 +5,20 @@
 - ✅ 專案骨架：Next.js 16 + TypeScript + Tailwind 4
 - ✅ 資料模型：Prisma schema 全數落地，已 migrate
 - ✅ 分類種子：CX/UX/BX 系列、主分類、CX 子分類
-- ✅ 帳號密碼註冊 / 登入（Auth.js + Credentials，端到端驗證通過）
+- ✅ 帳號密碼註冊 / 登入（Auth.js + Credentials）
+- ✅ **M1 商品上架**：上架 / 編輯 / 下架、品項自動建議、圖片網址、我的商品
+- ✅ **M2 搜尋與列表**：篩選（系列 / 分類 / 狀況 / 價格 / 關鍵字）、排序、分頁、詳情頁
+- ✅ **M3 購買需求與成交**：需求送出 / 撤回、指定買家標記已售出、寫入行情
+- ✅ **M4 市場行情**：即時統計（品項 × 狀況）、走勢圖、冷啟動、每日 / 每週 Cron 彙整
+- ✅ **M5 評價與信任分數**：雙向評價、信任分數 v1、賣家頁 / 徽章
 - ✅ 本機開發環境：Docker Postgres + npm scripts
-- ✅ 技術文件 docs/
+- ✅ 技術文件 docs/（含 [features.md](./features.md)）
+
+> MVP 核心迴圈（上架 → 搜尋 → 需求 → 成交 → 行情 → 評價）已可端到端運作，`npm run build` 通過，`scripts/smoke-flow.ts` 全鏈路驗證通過。
 
 ---
 
-## 里程碑
-
-### M1 — 商品上架（下一步）
-- [ ] 上架表單：系列 → 主分類 →（CX 顯示子分類）→ 品項、狀況、開價、數量
-- [ ] 品項自動建議（連 `PartCatalog`，可新增字典項目）
-- [ ] 圖片上傳（初期存 URL；之後接 Cloudflare R2）
-- [ ] 賣家「我的商品」管理頁（編輯 / 下架）
-- 依賴：`Listing`、`ListingImage`、`PartCatalog`（已備）
-
-### M2 — 搜尋與列表
-- [ ] 全站商品列表 + 分頁 / 無限捲動
-- [ ] 篩選器：系列、主分類、子分類、狀況、價格區間、關鍵字
-- [ ] 排序：最新 / 價格 / 熱門
-- [ ] 商品詳情頁（多圖、賣家資訊、LINE 導流）
-- 搜尋初期用 Postgres `ILIKE` / 全文檢索；量大再導入 Meilisearch
-
-### M3 — 購買需求與成交
-- [ ] 買家送出購買需求（留言、數量）
-- [ ] 賣家後台：查看某商品的需求者清單
-- [ ] 「標記已售出」→ 從需求者中指定買家（或手填站外買家）→ 填成交價
-- [ ] 建立 `Transaction` 並寫入 `PriceHistory`
-- 依賴：`PurchaseRequest`、`Transaction`、`PriceHistory`（已備）
-
-### M4 — 市場行情
-- [ ] Cron 每日彙整 `PriceHistory` → `PriceDailySummary` / `PriceWeeklySummary`（依 品項 × 狀況）
-- [ ] 商品頁 / 行情頁：折線圖 + 區間（Recharts）
-- [ ] 冷啟動呈現「近 N 筆成交」
-- [ ] 全新 / 二手切換或並列
-
-### M5 — 評價與信任分數
-- [ ] 成交後買賣雙向評價（星等 + 短評，一交易一次）
-- [ ] `SellerStats` 彙整：成交數、平均星等、`trustScore`
-- [ ] 列表 / 賣家頁顯示星等徽章
-- 依賴：`Review`、`SellerStats`（已備）
+## 里程碑（剩餘）
 
 ### M6 — 第三方登入（半實名）
 - [ ] Discord OAuth
@@ -65,14 +39,17 @@
 - 之後：接 **LINE Notify / Messaging API** 主動推播（玩家主要用 LINE）
 
 ## 待決策
-- **信任分數公式**：成交數 / 平均星等 / 帳齡的實際權重（M5 前定案）
-- **通知推播**：站內 vs LINE 的優先順序
+- ✅ **信任分數公式**：已定案 v1（`0.55×評價 + 0.30×成交 + 0.15×帳齡`，Bayesian 平滑）。見 [data-model.md](./data-model.md#信任分數公式v1-定案)。
+- **通知推播**：站內 vs LINE 的優先順序（購買需求 / 成交 / 收到評價目前無主動通知）
 - **圖片儲存**：何時從 DB URL 切換到 Cloudflare R2
 - **純帳密註冊去留**：接上 Discord/LINE 後是否關閉
 
 ## 技術債 / 待強化
-- [ ] 商品圖片正式化（物件儲存 + 縮圖）
-- [ ] 搜尋升級（Meilisearch，中文分詞）
+- [ ] 商品圖片正式化（目前為圖片網址 → 物件儲存 + 直傳 + 縮圖）
+- [ ] 搜尋升級（目前 Postgres `ILIKE` → Meilisearch，中文分詞）
+- [ ] 列表無限捲動（目前為分頁）
+- [ ] 通知機制（購買需求 / 成交 / 收到評價）
 - [ ] Rate limiting（註冊 / 需求送出防濫用）
+- [ ] 商品圖片以 `next/image` 最佳化（目前用 `<img>` 以支援任意外部網址）
 - [ ] E2E 測試（Playwright）與 CI
 - [ ] 站上明示「平台不介入交易糾紛」之免責與檢舉機制

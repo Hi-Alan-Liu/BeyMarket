@@ -81,7 +81,21 @@ PartType┼─< SubType         PartCatalog ──< PriceDailySummary
 | `Review` | 交易評價。`@@unique([transactionId, authorId])` 防刷（一交易一撰寫者一次） |
 | `SellerStats` | 賣家統計快取：成交數、平均星等、`trustScore`（成交數 + 平均評價 + 帳齡加權） |
 
-`SellerStats` 是彙整快取，方便列表直接顯示星等徽章而不需即時算。
+`SellerStats` 是彙整快取，方便列表直接顯示星等徽章而不需即時算。成交、收到評價時由 `recomputeSellerStats()`（`src/lib/trust.ts`）重算。
+
+### 信任分數公式（v1 定案）
+
+企劃書 §8「待決策」的信任分數權重，於此定案（實作見 `src/lib/trust.ts`，係數集中一處便於調整）：
+
+```
+trustScore（0–100）= 0.55 × 評價分數 + 0.30 × 成交分數 + 0.15 × 帳齡分數
+  評價分數 = (Bayesian 平均星等 / 5) × 100
+            Bayesian 平均 = (ratingSum + 3×3.5) / (ratingCount + 3)   ← 先驗：3 筆 3.5 星
+  成交分數 = min(成交數, 20) / 20 × 100                                ← 20 筆封頂
+  帳齡分數 = min(帳齡天數, 180) / 180 × 100                            ← 180 天封頂
+```
+
+Bayesian 平滑避免「單筆五星＝滿分」的失真；封頂避免刷量。權重可依營運回饋調整。
 
 ## 索引策略
 

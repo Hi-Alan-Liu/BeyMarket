@@ -23,11 +23,35 @@
   │
   ├─ 頁面（React Server Components）──► Next.js（Node runtime）──► Prisma ──► PostgreSQL
   │
+  ├─ 表單 / 操作（Server Actions "use server"）──► requireUser 驗證 ──► Prisma ──► revalidatePath
+  │
   ├─ /api/register（Route Handler）──► bcrypt 雜湊 ──► Prisma ──► PostgreSQL
   │
+  ├─ /api/catalog/suggest（品項自動建議）、/api/cron/aggregate（行情彙整）
+  │
   └─ /api/auth/*（Auth.js）──► Credentials authorize ──► bcrypt.compare ──► JWT session
-                              └─ middleware（edge）以 authConfig 保護受限路徑
+                              └─ proxy（edge）以 authConfig 保護受限路徑
 ```
+
+## 應用結構
+
+寫入與變更以 **Server Actions** 為主（非 REST API），就近綁定在對應功能資料夾：
+
+| 目錄 / 檔案 | 職責 |
+|------------|------|
+| `src/lib/` | 純邏輯與資料存取：`session`（登入守衛）、`catalog`（分類 / 字典）、`listings`（列表查詢 / 篩選）、`market`（行情統計 + 彙整）、`trust`（信任分數）、`format`（顯示格式） |
+| `src/components/` | 共用 UI：`nav`、`ui`（徽章 / 星等 / 空狀態）、`listing-card`、`listing-filters`、`market-widget`、各互動表單 |
+| `src/app/listings/actions.ts` | 上架 / 編輯 / 下架 |
+| `src/app/trade/actions.ts` | 購買需求 / 成交標記 / 評價（成交於 DB transaction 內同時寫入 `Transaction` + `PriceHistory` 並重算 `SellerStats`） |
+| `src/app/account/actions.ts` | 個人檔案更新 |
+
+功能路由與流程詳見 [features.md](./features.md)。
+
+## 行情彙整
+
+- 每筆成交（`markSold`）即時寫入 `PriceHistory`（若商品綁定 `PartCatalog`）。
+- `src/lib/market.ts` 的 `getMarketStats()` 即時計算「品項 × 狀況」的 min/max/avg 與近期成交點，供商品頁與行情頁顯示（資料量小時即時算足夠，並以冷啟動門檻改顯示「近 N 筆」）。
+- `aggregateMarketSummaries()` 由 Cron（`GET /api/cron/aggregate`）定時全量重算 `PriceDailySummary` / `PriceWeeklySummary`（冪等 upsert），供未來大量資料時的日／週線查詢。
 
 ## 認證架構（雙設定切分）
 

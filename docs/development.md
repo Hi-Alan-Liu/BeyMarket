@@ -76,8 +76,31 @@ curl -b jar -c jar -X POST http://localhost:3000/api/auth/callback/credentials \
 curl -b jar http://localhost:3000/api/auth/session
 ```
 
+## 驗證業務流程
+
+- **行情彙整 Cron**（手動觸發）：
+
+  ```bash
+  # 未設 CRON_SECRET 時可直接呼叫
+  curl http://localhost:3000/api/cron/aggregate
+  # 有設時
+  curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/aggregate
+  ```
+
+- **全鏈路冒煙測試**：`scripts/smoke-flow.ts` 直接對資料庫模擬「上架 → 需求 → 成交 → 寫入行情 → 重算信任分數 → 每日/每週彙整」，並印出結果對照：
+
+  ```bash
+  npx tsx scripts/smoke-flow.ts
+  ```
+
+## 功能與路由
+
+已實作的功能、路由與資料流見 [features.md](./features.md)。寫入操作以 Server Actions 為主（`src/app/**/actions.ts`），純邏輯集中在 `src/lib/`。
+
 ## 常見問題
 
 - **`prisma generate` 找不到 client**：`src/generated/prisma` 已 gitignore，clone 後 `npm install`（postinstall）或 `npm run db:generate` 會產生。
 - **連不上資料庫**：確認 `npm run db:up` 的容器 healthy（`docker ps`），且 `.env` 的 `DATABASE_URL` 埠為 `5432`。
 - **Prisma 7 client 需 driver adapter**：本專案已用 `@prisma/adapter-pg`（見 `src/lib/prisma.ts`），不可用無參數的 `new PrismaClient()`。
+- **Next 16 路由攔截是 `src/proxy.ts` 不是 `middleware.ts`**：Next 16 已將 `middleware` 慣例更名為 `proxy`，且要求匯出單一函式。詳見 [authentication.md](./authentication.md)。
+- **公開資料頁需 `force-dynamic`**：讀取 DB 的公開頁（首頁 / 列表 / 詳情 / 行情 / 賣家）標了 `export const dynamic = "force-dynamic"`，避免 build 時嘗試靜態預渲染而連線資料庫。

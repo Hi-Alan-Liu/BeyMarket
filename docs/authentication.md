@@ -6,9 +6,9 @@
 
 | 檔案 | 角色 |
 |------|------|
-| `src/auth.config.ts` | edge-safe 基礎設定：`pages`、`callbacks`、OAuth providers。middleware 使用，**不含** bcrypt / Prisma |
+| `src/auth.config.ts` | edge-safe 基礎設定：`pages`、`callbacks`、OAuth providers。proxy 使用，**不含** bcrypt / Prisma |
 | `src/auth.ts` | 完整設定：`...authConfig` + Credentials provider + Prisma adapter（Node runtime） |
-| `src/middleware.ts` | 用 `authConfig` 保護受限路徑 |
+| `src/proxy.ts` | 用 `authConfig` 保護受限路徑（Next 16 的 `middleware` 慣例，見下方說明） |
 | `src/app/api/auth/[...nextauth]/route.ts` | Auth.js 的 GET / POST handler |
 | `src/app/api/register/route.ts` | 註冊 API（bcrypt 雜湊 + 建立 User） |
 | `src/lib/validations/auth.ts` | zod：`loginSchema` / `registerSchema` |
@@ -16,7 +16,10 @@
 
 ## 為什麼切成兩份設定
 
-middleware 跑在 **edge runtime**，不能用 bcrypt 與 Prisma。因此把「edge 安全」的部分（callbacks、pages、OAuth）放 `auth.config.ts`，middleware 直接用；需要 Node 的 Credentials + Prisma adapter 只放在 `auth.ts`。這是 Auth.js 官方建議的 split pattern。
+proxy（路由攔截層）跑在 **edge runtime**，不能用 bcrypt 與 Prisma。因此把「edge 安全」的部分（callbacks、pages、OAuth）放 `auth.config.ts`，proxy 直接用；需要 Node 的 Credentials + Prisma adapter 只放在 `auth.ts`。這是 Auth.js 官方建議的 split pattern。
+
+> **Next 16：`middleware` → `proxy`**
+> Next 16 將根層的 `middleware.ts` 慣例更名為 `proxy.ts`，且要求匯出**單一函式**（named `proxy` 或 default export），不再支援 `export const { auth: middleware }` 的解構寫法。本專案 `src/proxy.ts` 以 `const { auth } = NextAuth(authConfig); export default auth;` 承接，功能與舊 middleware 完全相同。
 
 ## Session 策略
 
@@ -49,6 +52,8 @@ signIn("credentials", { email, password })
 ## 受保護路徑
 
 `auth.config.ts` 的 `authorized` callback 目前保護：`/dashboard`、`/listings/new`、`/account`。未登入存取會被導到 `/login`。新增受保護路徑時修改該清單。
+
+> 個別頁面（如 `/listings/[id]/edit`）與所有 Server Actions 另以 `requireUser()`（`src/lib/session.ts`）在伺服器端強制登入與權限檢查，proxy 為第一道防線、`requireUser()` 為第二道，兩者互補。
 
 ## 環境變數
 
